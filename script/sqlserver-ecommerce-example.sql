@@ -1,10 +1,10 @@
 /****************************************************************************************
-  SCRIPT COMPLETO PARA ECOMMERCE EN SQL SERVER
-  --------------------------------------------------------------
+  SCRIPT LIMPIO PARA ECOMMERCE EN SQL SERVER
+  ---------------------------------------------------------------------------------------
   Contenido:
     1) Creación de la base de datos y uso
-    2) Creación de tablas (orden correcto para FK)
-    3) Creación de un trigger de auditoría (ejemplo en tabla usuarios)
+    2) Creación de tablas (orden correcto para FKs)
+    3) Creación de un trigger de auditoría (en la tabla usuarios)
     4) Creación de procedimientos almacenados para inserciones
        - Manejo de transacciones y rollback
     5) Inserción de datos de prueba usando los SP
@@ -13,13 +13,23 @@
 ------------------------------------------------------------------------------------------
 -- 1. CREAR BASE DE DATOS Y SELECCIONARLA
 ------------------------------------------------------------------------------------------
+-- Eliminar la BD si existe, en lote separado
 IF DB_ID('ecommerce_db') IS NOT NULL
+BEGIN
+    -- Cambia la base a SINGLE_USER por si hay conexiones abiertas
+    ALTER DATABASE ecommerce_db 
+        SET SINGLE_USER 
+        WITH ROLLBACK IMMEDIATE;
+    
     DROP DATABASE ecommerce_db;
-GO
+END
+GO  -- Fin del lote
 
+-- Crear la base de datos en un lote aislado
 CREATE DATABASE ecommerce_db;
 GO
 
+-- Seleccionar la BD
 USE ecommerce_db;
 GO
 
@@ -28,161 +38,161 @@ GO
 ------------------------------------------------------------------------------------------
 /*
    Orden de creación para respetar las referencias:
-   1) roles
-   2) categorias
-   3) metodos_pago
-   4) usuarios
-   5) productos
-   6) ordenes
-   7) detalle_ordenes
-   8) pagos
-   9) inventario
-   10) bitacora
+   1) Roles
+   2) Categorias
+   3) MetodosPago
+   4) Usuarios
+   5) Productos
+   6) Ordenes
+   7) DetalleOrdenes
+   8) Pagos
+   9) Inventario
+   10) Bitacora
 */
 
 -- ========================================
--- TABLA: roles
+-- TABLA: Roles
 -- ========================================
-CREATE TABLE roles (
+CREATE TABLE Roles (
     id_rol INT PRIMARY KEY IDENTITY(1,1),
     nombre VARCHAR(50) NOT NULL UNIQUE
 );
 GO
 
 -- ========================================
--- TABLA: categorias
+-- TABLA: Categorias
 -- ========================================
-CREATE TABLE categorias (
+CREATE TABLE Categorias (
     id_categoria INT PRIMARY KEY IDENTITY(1,1),
-    nombre VARCHAR(100) UNIQUE NOT NULL,
-    descripcion TEXT NULL
+    nombre       VARCHAR(100) NOT NULL UNIQUE,
+    descripcion  VARCHAR(MAX) NULL
 );
 GO
 
 -- ========================================
--- TABLA: metodos_pago
+-- TABLA: MetodosPago
 -- ========================================
-CREATE TABLE metodos_pago (
+CREATE TABLE MetodosPago (
     id_metodo_pago INT PRIMARY KEY IDENTITY(1,1),
-    nombre VARCHAR(50) UNIQUE NOT NULL
+    nombre         VARCHAR(50) NOT NULL UNIQUE
 );
 GO
 
 -- ========================================
--- TABLA: usuarios
+-- TABLA: Usuarios
 -- ========================================
-CREATE TABLE usuarios (
-    id_usuario INT PRIMARY KEY IDENTITY(1,1),
-    nombre VARCHAR(100) NOT NULL,
-    correo VARCHAR(100) UNIQUE NOT NULL,
-    clave VARBINARY(256) NOT NULL,  -- Contraseña hasheada
-    telefono VARCHAR(20),
-    direccion VARCHAR(MAX),
-    id_rol INT NOT NULL,
+CREATE TABLE Usuarios (
+    id_usuario     INT PRIMARY KEY IDENTITY(1,1),
+    nombre         VARCHAR(100) NOT NULL,
+    correo         VARCHAR(100) NOT NULL UNIQUE,
+    clave          VARBINARY(256) NOT NULL,  -- Contraseña hasheada
+    telefono       VARCHAR(20),
+    direccion      VARCHAR(MAX),
+    id_rol         INT NOT NULL,
     fecha_creacion DATETIME DEFAULT GETDATE(),
     CONSTRAINT fk_usuarios_rol 
-        FOREIGN KEY (id_rol) REFERENCES roles(id_rol) ON DELETE CASCADE
+        FOREIGN KEY (id_rol) REFERENCES Roles(id_rol) ON DELETE CASCADE
 );
 GO
 
 -- ========================================
--- TABLA: productos
+-- TABLA: Productos
 -- ========================================
-CREATE TABLE productos (
-    id_producto INT PRIMARY KEY IDENTITY(1,1),
-    nombre VARCHAR(100) NOT NULL,
-    descripcion VARCHAR(MAX) NULL,
-    precio DECIMAL(10,2) NOT NULL,
-    stock INT NOT NULL DEFAULT 0,
-    id_categoria INT NULL,  -- Permite NULL para usar ON DELETE SET NULL
+CREATE TABLE Productos (
+    id_producto    INT PRIMARY KEY IDENTITY(1,1),
+    nombre         VARCHAR(100) NOT NULL,
+    descripcion    VARCHAR(MAX) NULL,
+    precio         DECIMAL(10,2) NOT NULL CHECK (precio >= 0),
+    stock          INT NOT NULL DEFAULT 0 CHECK (stock >= 0),
+    id_categoria   INT NULL,  -- Permite NULL para usar ON DELETE SET NULL
     fecha_creacion DATETIME DEFAULT GETDATE(),
     CONSTRAINT fk_productos_categoria 
-        FOREIGN KEY (id_categoria) REFERENCES categorias(id_categoria) ON DELETE SET NULL
+        FOREIGN KEY (id_categoria) REFERENCES Categorias(id_categoria) ON DELETE SET NULL
 );
 GO
 
 -- ========================================
--- TABLA: ordenes
+-- TABLA: Ordenes
 -- ========================================
-CREATE TABLE ordenes (
-    id_orden INT PRIMARY KEY IDENTITY(1,1),
-    id_usuario INT NOT NULL,
-    total DECIMAL(10,2) NOT NULL,
-    estado VARCHAR(50) DEFAULT 'Pendiente',  
+CREATE TABLE Ordenes (
+    id_orden       INT PRIMARY KEY IDENTITY(1,1),
+    id_usuario     INT NOT NULL,
+    total          DECIMAL(10,2) NOT NULL CHECK (total >= 0),
+    estado         VARCHAR(50) DEFAULT 'Pendiente',
     fecha_creacion DATETIME DEFAULT GETDATE(),
     CONSTRAINT fk_ordenes_usuario 
-        FOREIGN KEY (id_usuario) REFERENCES usuarios(id_usuario) ON DELETE CASCADE
+        FOREIGN KEY (id_usuario) REFERENCES Usuarios(id_usuario) ON DELETE CASCADE
 );
 GO
 
 -- ========================================
--- TABLA: detalle_ordenes
+-- TABLA: DetalleOrdenes
 -- ========================================
-CREATE TABLE detalle_ordenes (
-    id_detalle INT PRIMARY KEY IDENTITY(1,1),
-    id_orden INT NOT NULL,
-    id_producto INT NOT NULL,
-    cantidad INT NOT NULL CHECK (cantidad > 0),
-    precio_unitario DECIMAL(10,2) NOT NULL,
-    subtotal AS (cantidad * precio_unitario) PERSISTED,
-    CONSTRAINT fk_detalle_orden_orden 
-        FOREIGN KEY (id_orden) REFERENCES ordenes(id_orden) ON DELETE CASCADE,
-    CONSTRAINT fk_detalle_orden_producto 
-        FOREIGN KEY (id_producto) REFERENCES productos(id_producto) ON DELETE CASCADE
+CREATE TABLE DetalleOrdenes (
+    id_detalle      INT PRIMARY KEY IDENTITY(1,1),
+    id_orden        INT NOT NULL,
+    id_producto     INT NOT NULL,
+    cantidad        INT NOT NULL CHECK (cantidad > 0),
+    precio_unitario DECIMAL(10,2) NOT NULL CHECK (precio_unitario >= 0),
+    subtotal        AS (cantidad * precio_unitario) PERSISTED,
+    CONSTRAINT fk_detalleorden_orden 
+        FOREIGN KEY (id_orden) REFERENCES Ordenes(id_orden) ON DELETE CASCADE,
+    CONSTRAINT fk_detalleorden_producto 
+        FOREIGN KEY (id_producto) REFERENCES Productos(id_producto) ON DELETE CASCADE
 );
 GO
 
 -- ========================================
--- TABLA: pagos
+-- TABLA: Pagos
 -- ========================================
-CREATE TABLE pagos (
-    id_pago INT PRIMARY KEY IDENTITY(1,1),
-    id_orden INT NOT NULL,
+CREATE TABLE Pagos (
+    id_pago        INT PRIMARY KEY IDENTITY(1,1),
+    id_orden       INT NOT NULL,
     id_metodo_pago INT NULL, -- Permite NULL para usar ON DELETE SET NULL
-    monto DECIMAL(10,2) NOT NULL,
-    fecha_pago DATETIME DEFAULT GETDATE(),
+    monto          DECIMAL(10,2) NOT NULL CHECK (monto >= 0),
+    fecha_pago     DATETIME DEFAULT GETDATE(),
     CONSTRAINT fk_pagos_orden 
-        FOREIGN KEY (id_orden) REFERENCES ordenes(id_orden) ON DELETE CASCADE,
+        FOREIGN KEY (id_orden) REFERENCES Ordenes(id_orden) ON DELETE CASCADE,
     CONSTRAINT fk_pagos_metodo 
-        FOREIGN KEY (id_metodo_pago) REFERENCES metodos_pago(id_metodo_pago) ON DELETE SET NULL
+        FOREIGN KEY (id_metodo_pago) REFERENCES MetodosPago(id_metodo_pago) ON DELETE SET NULL
 );
 GO
 
 -- ========================================
--- TABLA: inventario
+-- TABLA: Inventario
 -- ========================================
-CREATE TABLE inventario (
-    id_inventario INT PRIMARY KEY IDENTITY(1,1),
-    id_producto INT NOT NULL,
+CREATE TABLE Inventario (
+    id_inventario     INT PRIMARY KEY IDENTITY(1,1),
+    id_producto       INT NOT NULL,
     cantidad_cambiada INT NOT NULL,
-    fecha DATETIME DEFAULT GETDATE(),
-    descripcion VARCHAR(MAX) NULL,
+    fecha             DATETIME DEFAULT GETDATE(),
+    descripcion       VARCHAR(MAX) NULL,
     CONSTRAINT fk_inventario_producto 
-        FOREIGN KEY (id_producto) REFERENCES productos(id_producto) ON DELETE CASCADE
+        FOREIGN KEY (id_producto) REFERENCES Productos(id_producto) ON DELETE CASCADE
 );
 GO
 
 -- ========================================
--- TABLA: bitacora (Auditoría)
+-- TABLA: Bitacora (Auditoría)
 -- ========================================
-CREATE TABLE bitacora (
-    id_bitacora INT PRIMARY KEY IDENTITY(1,1),
-    tabla_afectada VARCHAR(100) NOT NULL,
+CREATE TABLE Bitacora (
+    id_bitacora          INT PRIMARY KEY IDENTITY(1,1),
+    tabla_afectada       VARCHAR(100) NOT NULL,
     id_registro_afectado INT NOT NULL,
-    accion VARCHAR(50) NOT NULL,   -- 'INSERT', 'UPDATE', 'DELETE'
-    usuario VARCHAR(100) NOT NULL,
-    fecha DATETIME DEFAULT GETDATE(),
-    detalle VARCHAR(MAX) NULL
+    accion               VARCHAR(50) NOT NULL,   -- 'INSERT', 'UPDATE', 'DELETE'
+    usuario              VARCHAR(100) NOT NULL,
+    fecha                DATETIME DEFAULT GETDATE(),
+    detalle              VARCHAR(MAX) NULL
 );
 GO
 
 ------------------------------------------------------------------------------------------
--- 3. CREACIÓN DE TRIGGERS PARA AUDITORÍA (EJEMPLO EN USUARIOS)
+-- 3. CREACIÓN DE TRIGGER PARA AUDITORÍA (Ejemplo en Usuarios)
 ------------------------------------------------------------------------------------------
 GO  -- Asegura que CREATE TRIGGER sea la primera instrucción de su lote
 
 CREATE TRIGGER trg_auditoria_usuarios
-ON usuarios
+ON Usuarios
 AFTER INSERT, UPDATE, DELETE
 AS
 BEGIN
@@ -201,12 +211,13 @@ BEGIN
       Inserta en la bitácora tanto los registros 'inserted' como 'deleted'.
       - 'inserted' contiene las filas nuevas o actualizadas.
       - 'deleted' contiene las filas que fueron borradas o antes de la actualización.
+      - Si sólo quisieras almacenar un único registro por UPDATE, podrías filtrar.
     */
-    INSERT INTO bitacora (tabla_afectada, id_registro_afectado, accion, usuario, detalle)
-    SELECT 'usuarios', id_usuario, @accion, SUSER_NAME(), 'Cambio en la tabla usuarios'
+    INSERT INTO Bitacora (tabla_afectada, id_registro_afectado, accion, usuario, detalle)
+    SELECT 'Usuarios', id_usuario, @accion, SUSER_NAME(), 'Cambio en la tabla usuarios'
     FROM inserted
     UNION
-    SELECT 'usuarios', id_usuario, @accion, SUSER_NAME(), 'Cambio en la tabla usuarios'
+    SELECT 'Usuarios', id_usuario, @accion, SUSER_NAME(), 'Cambio en la tabla usuarios'
     FROM deleted;
 END;
 GO
@@ -214,18 +225,24 @@ GO
 ------------------------------------------------------------------------------------------
 -- 4. CREACIÓN DE PROCEDIMIENTOS ALMACENADOS (INSERCIÓN CON TRANSACCIONES)
 ------------------------------------------------------------------------------------------
+/*
+   Uso convención "usp_{Entidad}{Acción}":
+   - usp_RolInsertar
+   - usp_UsuarioInsertar
+   - ...
+*/
 
 -- ===============================
--- SP: Insertar Rol
+-- usp_RolInsertar
 -- ===============================
-CREATE OR ALTER PROCEDURE sp_insert_rol
+CREATE OR ALTER PROCEDURE usp_RolInsertar
     @nombre VARCHAR(50)
 AS
 BEGIN
     SET NOCOUNT ON;
     BEGIN TRAN
     BEGIN TRY
-        INSERT INTO roles (nombre)
+        INSERT INTO Roles (nombre)
         VALUES (@nombre);
 
         COMMIT TRAN;
@@ -238,9 +255,9 @@ END;
 GO
 
 -- ===============================
--- SP: Insertar Usuario
+-- usp_UsuarioInsertar
 -- ===============================
-CREATE OR ALTER PROCEDURE sp_insert_usuario
+CREATE OR ALTER PROCEDURE usp_UsuarioInsertar
     @nombre     VARCHAR(100),
     @correo     VARCHAR(100),
     @clave      VARBINARY(256),
@@ -252,7 +269,7 @@ BEGIN
     SET NOCOUNT ON;
     BEGIN TRAN
     BEGIN TRY
-        INSERT INTO usuarios (
+        INSERT INTO Usuarios (
             nombre,
             correo,
             clave,
@@ -279,9 +296,9 @@ END;
 GO
 
 -- ===============================
--- SP: Insertar Categoría
+-- usp_CategoriaInsertar
 -- ===============================
-CREATE OR ALTER PROCEDURE sp_insert_categoria
+CREATE OR ALTER PROCEDURE usp_CategoriaInsertar
     @nombre      VARCHAR(100),
     @descripcion VARCHAR(MAX) = NULL
 AS
@@ -289,7 +306,7 @@ BEGIN
     SET NOCOUNT ON;
     BEGIN TRAN
     BEGIN TRY
-        INSERT INTO categorias (nombre, descripcion)
+        INSERT INTO Categorias (nombre, descripcion)
         VALUES (@nombre, @descripcion);
 
         COMMIT TRAN;
@@ -302,9 +319,9 @@ END;
 GO
 
 -- ===============================
--- SP: Insertar Producto
+-- usp_ProductoInsertar
 -- ===============================
-CREATE OR ALTER PROCEDURE sp_insert_producto
+CREATE OR ALTER PROCEDURE usp_ProductoInsertar
     @nombre        VARCHAR(100),
     @descripcion   VARCHAR(MAX) = NULL,
     @precio        DECIMAL(10,2),
@@ -315,7 +332,7 @@ BEGIN
     SET NOCOUNT ON;
     BEGIN TRAN
     BEGIN TRY
-        INSERT INTO productos (
+        INSERT INTO Productos (
             nombre,
             descripcion,
             precio,
@@ -340,9 +357,9 @@ END;
 GO
 
 -- ===============================
--- SP: Insertar Orden
+-- usp_OrdenInsertar
 -- ===============================
-CREATE OR ALTER PROCEDURE sp_insert_orden
+CREATE OR ALTER PROCEDURE usp_OrdenInsertar
     @id_usuario INT,
     @total      DECIMAL(10,2),
     @estado     VARCHAR(50) = 'Pendiente'
@@ -351,7 +368,7 @@ BEGIN
     SET NOCOUNT ON;
     BEGIN TRAN
     BEGIN TRY
-        INSERT INTO ordenes (
+        INSERT INTO Ordenes (
             id_usuario,
             total,
             estado
@@ -372,9 +389,9 @@ END;
 GO
 
 -- ===============================
--- SP: Insertar Detalle de Orden
+-- usp_DetalleOrdenInsertar
 -- ===============================
-CREATE OR ALTER PROCEDURE sp_insert_detalle_orden
+CREATE OR ALTER PROCEDURE usp_DetalleOrdenInsertar
     @id_orden       INT,
     @id_producto    INT,
     @cantidad       INT,
@@ -384,7 +401,7 @@ BEGIN
     SET NOCOUNT ON;
     BEGIN TRAN
     BEGIN TRY
-        INSERT INTO detalle_ordenes (
+        INSERT INTO DetalleOrdenes (
             id_orden,
             id_producto,
             cantidad,
@@ -407,9 +424,9 @@ END;
 GO
 
 -- ===============================
--- SP: Insertar Pago
+-- usp_PagoInsertar
 -- ===============================
-CREATE OR ALTER PROCEDURE sp_insert_pago
+CREATE OR ALTER PROCEDURE usp_PagoInsertar
     @id_orden       INT,
     @id_metodo_pago INT,
     @monto          DECIMAL(10,2)
@@ -418,7 +435,7 @@ BEGIN
     SET NOCOUNT ON;
     BEGIN TRAN
     BEGIN TRY
-        INSERT INTO pagos (
+        INSERT INTO Pagos (
             id_orden,
             id_metodo_pago,
             monto
@@ -439,9 +456,9 @@ END;
 GO
 
 -- ===============================
--- SP: Insertar Movimiento de Inventario
+-- usp_InventarioInsertar
 -- ===============================
-CREATE OR ALTER PROCEDURE sp_insert_inventario
+CREATE OR ALTER PROCEDURE usp_InventarioInsertar
     @id_producto       INT,
     @cantidad_cambiada INT,
     @descripcion       VARCHAR(MAX) = NULL
@@ -450,7 +467,7 @@ BEGIN
     SET NOCOUNT ON;
     BEGIN TRAN
     BEGIN TRY
-        INSERT INTO inventario (
+        INSERT INTO Inventario (
             id_producto,
             cantidad_cambiada,
             descripcion
@@ -489,27 +506,27 @@ GO
 -- ========================================
 -- ROLES
 -- ========================================
-EXEC sp_insert_rol @nombre = 'Administrador';
-EXEC sp_insert_rol @nombre = 'Cliente';
-EXEC sp_insert_rol @nombre = 'Vendedor';
+EXEC usp_RolInsertar @nombre = 'Administrador';
+EXEC usp_RolInsertar @nombre = 'Cliente';
+EXEC usp_RolInsertar @nombre = 'Vendedor';
 
 -- ========================================
 -- CATEGORÍAS
 -- ========================================
-EXEC sp_insert_categoria 
+EXEC usp_CategoriaInsertar 
     @nombre = 'Electrónica', 
     @descripcion = 'Smartphones, laptops, etc.';
-EXEC sp_insert_categoria 
+EXEC usp_CategoriaInsertar 
     @nombre = 'Ropa', 
     @descripcion = 'Prendas de vestir';
-EXEC sp_insert_categoria 
+EXEC usp_CategoriaInsertar 
     @nombre = 'Hogar', 
     @descripcion = 'Muebles y electrodomésticos';
 
 -- ========================================
--- MÉTODOS DE PAGO
+-- MÉTODOS DE PAGO (ejemplo de inserción directa)
 -- ========================================
-INSERT INTO metodos_pago (nombre)
+INSERT INTO MetodosPago (nombre)
 VALUES ('Tarjeta de Crédito'),
        ('PayPal'),
        ('Transferencia Bancaria'),
@@ -518,33 +535,33 @@ VALUES ('Tarjeta de Crédito'),
 -- ========================================
 -- USUARIOS
 -- ========================================
-EXEC sp_insert_usuario 
+EXEC usp_UsuarioInsertar 
     @nombre = 'Juan Pérez',
     @correo = 'juan@example.com',
-    @clave = 0x123456,       
+    @clave = 0x123456,   -- Hash simulado
     @telefono = '999-888-777',
     @direccion = 'Calle Falsa 123',
-    @id_rol = 2;             -- Cliente
+    @id_rol = 2;         -- Cliente
 
-EXEC sp_insert_usuario 
+EXEC usp_UsuarioInsertar
     @nombre = 'Ana Gómez',
     @correo = 'ana@example.com',
-    @clave = 0x654321,
+    @clave = 0x654321,   -- Hash simulado
     @telefono = '111-222-333',
     @direccion = 'Av. Principal 456',
-    @id_rol = 1;             -- Administrador
+    @id_rol = 1;         -- Administrador
 
 -- ========================================
 -- PRODUCTOS
 -- ========================================
-EXEC sp_insert_producto
+EXEC usp_ProductoInsertar
     @nombre = 'Laptop HP',
     @descripcion = 'Laptop de alto rendimiento',
     @precio = 1200.00,
     @stock = 10,
     @id_categoria = 1;  -- Electrónica
 
-EXEC sp_insert_producto
+EXEC usp_ProductoInsertar
     @nombre = 'Camiseta Negra',
     @descripcion = 'Camiseta de algodón',
     @precio = 20.00,
@@ -554,21 +571,21 @@ EXEC sp_insert_producto
 -- ========================================
 -- CREAR UNA ORDEN (Usuario "Juan Pérez" -> id_usuario = 1)
 -- ========================================
-EXEC sp_insert_orden 
+EXEC usp_OrdenInsertar 
     @id_usuario = 1,
     @total = 1240.00,
     @estado = 'Pendiente';
 
 -- ========================================
--- DETALLES DE LA ORDEN (Asumiendo la orden recién creada es id_orden = 1)
+-- DETALLES DE LA ORDEN (asumiendo la orden creada es id_orden = 1)
 -- ========================================
-EXEC sp_insert_detalle_orden
+EXEC usp_DetalleOrdenInsertar
     @id_orden = 1,
     @id_producto = 1,      -- Laptop HP
     @cantidad = 1,
     @precio_unitario = 1200.00;
 
-EXEC sp_insert_detalle_orden
+EXEC usp_DetalleOrdenInsertar
     @id_orden = 1,
     @id_producto = 2,      -- Camiseta Negra
     @cantidad = 2,
@@ -577,7 +594,7 @@ EXEC sp_insert_detalle_orden
 -- ========================================
 -- PAGO DE LA ORDEN (Método de pago #1 = 'Tarjeta de Crédito')
 -- ========================================
-EXEC sp_insert_pago
+EXEC usp_PagoInsertar
     @id_orden = 1,
     @id_metodo_pago = 1,
     @monto = 1240.00;
@@ -585,12 +602,12 @@ EXEC sp_insert_pago
 -- ========================================
 -- INVENTARIO (Descuenta 1 laptop y 2 camisetas)
 -- ========================================
-EXEC sp_insert_inventario
+EXEC usp_InventarioInsertar
     @id_producto = 1,
     @cantidad_cambiada = -1,
     @descripcion = 'Venta Laptop HP';
 
-EXEC sp_insert_inventario
+EXEC usp_InventarioInsertar
     @id_producto = 2,
     @cantidad_cambiada = -2,
     @descripcion = 'Venta Camiseta Negra';
@@ -602,6 +619,8 @@ EXEC sp_insert_inventario
 /****************************************************************************************
   Instrucciones:
   1) Ejecuta este script completo en SQL Server Management Studio o similar.
-  2) Revisa la base de datos "ecommerce_db" con sus tablas, triggers, SP y datos insertados.
-  3) Puedes personalizar o ampliar según tus necesidades.
+  2) Revisa la base de datos "ecommerce_db", con sus tablas sin prefijos innecesarios.
+  3) Verás el trigger "trg_auditoria_usuarios" y procedimientos "usp_*" para las inserciones.
+  4) Confirma que los datos de prueba se hayan insertado correctamente.
+  5) Personaliza nombres, validaciones y descripciones a conveniencia.
 ****************************************************************************************/
