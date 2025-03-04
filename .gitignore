@@ -1,0 +1,50 @@
+# Byte-compiled / optimized / DLL files
+__pycache__/
+*.py[cod]
+*$py.class
+
+# C extensions
+*.so
+
+# Packages
+*.egg
+*.egg-info/
+dist/
+build/
+eggs/
+
+# Installer logs
+pip-log.txt
+pip-delete-this-directory.txt
+
+# Pytest cache
+.pytest_cache/
+
+# Virtual environment directories
+venv/
+.venv/
+env/
+.venv/
+
+# Mac/Windows system files (opcional)
+.DS_Store
+Thumbs.db
+
+# Credentials / environment variables
+.env
+
+# IDE / Editor directories and files
+.vscode/
+.idea/
+
+# If you're using JetBrains or Visual Studio, add any extra folders they generate
+# JetBrains
+*.iml
+*.ipr
+*.iws
+.idea/
+
+# Visual Studio Code workspace files
+*.code-workspace
+
+# End of .gitignore
